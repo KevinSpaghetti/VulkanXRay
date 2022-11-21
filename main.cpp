@@ -155,6 +155,7 @@ int main() {
     };
 
     vk::PhysicalDeviceFeatures device_features{};
+    device_features.fillModeNonSolid = true;
 
     std::vector<const char*> extensions = { "VK_KHR_swapchain" };
     vk::DeviceCreateInfo device_ci{
@@ -206,18 +207,18 @@ int main() {
             .samples = msaa_samples,
             .loadOp = vk::AttachmentLoadOp::eClear,
             .storeOp = vk::AttachmentStoreOp::eStore,
-            .stencilLoadOp = vk::AttachmentLoadOp::eDontCare,
+            .stencilLoadOp = vk::AttachmentLoadOp::eClear,
             .stencilStoreOp = vk::AttachmentStoreOp::eDontCare,
             .initialLayout = vk::ImageLayout::eUndefined,
             .finalLayout = vk::ImageLayout::eColorAttachmentOptimal
     };
-    vk::Format depth_format = vk::Format::eD32Sfloat;
+    vk::Format depth_format = vk::Format::eD32SfloatS8Uint;
     vk::AttachmentDescription depth_attachment_description{
             .format = depth_format,
             .samples = msaa_samples,
             .loadOp = vk::AttachmentLoadOp::eClear,
             .storeOp = vk::AttachmentStoreOp::eDontCare,
-            .stencilLoadOp = vk::AttachmentLoadOp::eDontCare,
+            .stencilLoadOp = vk::AttachmentLoadOp::eClear,
             .stencilStoreOp = vk::AttachmentStoreOp::eDontCare,
             .initialLayout = vk::ImageLayout::eUndefined,
             .finalLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal
@@ -299,7 +300,7 @@ int main() {
             vk::ComponentSwizzle::eIdentity,
         },
         .subresourceRange = {
-            .aspectMask = vk::ImageAspectFlagBits::eDepth,
+            .aspectMask = vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil,
             .baseMipLevel = 0,
             .levelCount = 1,
             .baseArrayLayer = 0,
@@ -539,14 +540,23 @@ int main() {
         .pPushConstantRanges = &push_constant_range
     });
 
+    vk::StencilOpState stencil_state{
+            .failOp = vk::StencilOp::eZero,
+            .passOp = vk::StencilOp::eReplace,
+            .depthFailOp = vk::StencilOp::eZero,
+            .compareOp = vk::CompareOp::eEqual,
+            .compareMask = 0xFF,
+            .writeMask = 0xFF,
+            .reference = 1
+    };
     vk::PipelineDepthStencilStateCreateInfo depth_state_ci{
         .depthTestEnable = true,
         .depthWriteEnable = true,
         .depthCompareOp = vk::CompareOp::eLess,
         .depthBoundsTestEnable = false,
-        .stencilTestEnable = false,
-        .front = {},
-        .back = {},
+        .stencilTestEnable = true,
+        .front = stencil_state,
+        .back = stencil_state,
         .minDepthBounds = 0.0f,
         .maxDepthBounds = 1.0f,
     };
@@ -567,6 +577,36 @@ int main() {
     };
 
     vk::Pipeline object_pipeline = device.createGraphicsPipeline({}, pipeline_ci).value;
+
+    vk::PipelineRasterizationStateCreateInfo geometry_rasterizer_ci{
+            .polygonMode = vk::PolygonMode::eLine,
+            .cullMode = vk::CullModeFlagBits::eBack,
+            .frontFace = vk::FrontFace::eCounterClockwise,
+            .lineWidth = 1.0f
+    };
+
+    std::array<vk::DynamicState, 1> dynamic_state{ vk::DynamicState::eScissor };
+    vk::PipelineDynamicStateCreateInfo dynamic_state_ci{
+        .dynamicStateCount = dynamic_state.size(),
+        .pDynamicStates = dynamic_state.data()
+    };
+
+    vk::GraphicsPipelineCreateInfo geometry_pipeline_ci{
+            .stageCount = shaders_stages.size(),
+            .pStages = shaders_stages.data(),
+            .pVertexInputState = &vertex_input_ci,
+            .pInputAssemblyState = &vertex_assembly_ci,
+            .pViewportState = &pipeline_vw_ci,
+            .pRasterizationState = &geometry_rasterizer_ci,
+            .pMultisampleState = &multisampling_settings,
+            .pDepthStencilState = &depth_state_ci,
+            .pColorBlendState = &global_blend_settings,
+            .pDynamicState = &dynamic_state_ci,
+            .layout = pipeline_layout,
+            .renderPass = render_pass,
+            .subpass = 0,
+    };
+    vk::Pipeline geometry_pipeline = device.createGraphicsPipeline({}, geometry_pipeline_ci).value;
 
     vk::CommandPool command_pool = device.createCommandPool({
         .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
@@ -630,6 +670,8 @@ int main() {
     init_info.MSAASamples = VkSampleCountFlagBits(msaa_samples);
     ImGui_ImplVulkan_Init(&init_info, render_pass);
 
+    ImGui::GetStyle().Alpha = 0.4;
+
     vk::PipelineStageFlags wait_stages = vk::PipelineStageFlagBits::eColorAttachmentOutput;
 
     render_command_buffers[0].reset();
@@ -658,11 +700,15 @@ int main() {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::Begin("Hello, world!");
-        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
-                    1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+        ImGuiWindowFlags window_flags = 0;
+        window_flags |= ImGuiWindowFlags_NoBackground;
+        bool* open = nullptr;
+        ImGui::Begin("XRay Geometry", open, window_flags);
+        ImVec2 w_position = ImGui::GetWindowPos();
+        ImVec2 w_size = ImGui::GetWindowSize();
+        //ImGui::Text("pos: (%f , %f)", w_position.x, w_position.y);
+        //ImGui::Text("size: (%f , %f)", w_size.x, w_size.y);
         ImGui::End();
-
         ImGui::Render();
         ImDrawData* ui_draw_data = ImGui::GetDrawData();
 
@@ -673,10 +719,30 @@ int main() {
 
         std::array<vk::ClearValue, 2> clear_values{};
         clear_values[0].color = vk::ClearColorValue{{{0.15f, 0.15f, 0.15f, 1.0f}}};
-        clear_values[1].depthStencil = vk::ClearDepthStencilValue{1.0f, 0};
+        clear_values[1].depthStencil = vk::ClearDepthStencilValue{1.0f, 1};
 
         render_command_buffers[0].reset();
         render_command_buffers[0].begin(vk::CommandBufferBeginInfo{});
+        //Clear stencil buffer
+
+        vk::Rect2D window_area{
+            .offset = {0, 0},
+            .extent = swapchain_ci.imageExtent
+        };
+
+        vk::Rect2D xray_rect = {
+        vk::Offset2D{
+            static_cast<int32_t>(w_position.x),
+            static_cast<int32_t>(w_position.y)
+            },
+        vk::Extent2D{
+            static_cast<uint32_t>(w_size.x),
+            static_cast<uint32_t>(w_size.y)
+        }};
+        vk::ClearValue not_render_values{};
+        not_render_values.color = vk::ClearColorValue{{{0.15f, 0.15f, 0.15f, 1.0f}}};
+        not_render_values.depthStencil = vk::ClearDepthStencilValue{1.0f, 0};
+
         render_command_buffers[0].beginRenderPass(vk::RenderPassBeginInfo{
                 .renderPass = render_pass,
                 .framebuffer = frame_buffers[image_index],
@@ -685,12 +751,41 @@ int main() {
                 .pClearValues = clear_values.data(),
         }, vk::SubpassContents::eInline);
 
-        render_command_buffers[0].bindPipeline(vk::PipelineBindPoint::eGraphics, object_pipeline);
+        render_command_buffers[0].clearAttachments(vk::ClearAttachment{
+                .aspectMask = vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil,
+                .colorAttachment = 1,
+                .clearValue = not_render_values,
+        }, vk::ClearRect{
+                .rect = xray_rect,
+                .baseArrayLayer = 0,
+                .layerCount = 1
+        });
 
         glm::mat4 render_matrix[2] = {projection, model};
-        render_command_buffers[0].pushConstants(pipeline_layout, vk::ShaderStageFlagBits::eVertex, 0, 2 * sizeof(glm::mat4), &render_matrix);
-
         vk::DeviceSize offsets = { 0 };
+
+        render_command_buffers[0].bindPipeline(vk::PipelineBindPoint::eGraphics, object_pipeline);
+        render_command_buffers[0].pushConstants(pipeline_layout, vk::ShaderStageFlagBits::eVertex, 0, 2 * sizeof(glm::mat4), &render_matrix);
+        render_command_buffers[0].bindVertexBuffers(0, data_buffer, offsets);
+        render_command_buffers[0].bindIndexBuffer(index_buffer,0,vk::IndexType::eUint32);
+        render_command_buffers[0].drawIndexed(indices_data.size(), 1, 0, 0, 0);
+
+        vk::ClearValue render_values{};
+        render_values.color = vk::ClearColorValue{{{0.15f, 0.15f, 0.15f, 1.0f}}};
+        render_values.depthStencil = vk::ClearDepthStencilValue{1.0f, 1};
+
+        render_command_buffers[0].clearAttachments(vk::ClearAttachment{
+            .aspectMask = vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil,
+            .colorAttachment = 1,
+            .clearValue = render_values,
+        }, vk::ClearRect{
+                .rect = window_area,
+                .baseArrayLayer = 0, .layerCount = 1
+        });
+
+        render_command_buffers[0].setScissor(0, xray_rect);
+        render_command_buffers[0].bindPipeline(vk::PipelineBindPoint::eGraphics, geometry_pipeline);
+        render_command_buffers[0].pushConstants(pipeline_layout, vk::ShaderStageFlagBits::eVertex, 0, 2 * sizeof(glm::mat4), &render_matrix);
         render_command_buffers[0].bindVertexBuffers(0, data_buffer, offsets);
         render_command_buffers[0].bindIndexBuffer(index_buffer,0,vk::IndexType::eUint32);
         render_command_buffers[0].drawIndexed(indices_data.size(), 1, 0, 0, 0);

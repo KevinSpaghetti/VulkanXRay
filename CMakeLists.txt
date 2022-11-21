@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.23)
-project(VulkanBasicDemo)
+project(VulkanXRay)
 
 set(CMAKE_CXX_STANDARD 20)
 
@@ -20,17 +20,17 @@ SET(IMGUI_FILES
     libs/imgui/backends/imgui_impl_glfw.cpp
     libs/imgui/backends/imgui_impl_vulkan.cpp)
 
-add_executable(VulkanBasicDemo main.cpp ${IMGUI_FILES})
+add_executable(VulkanXRay main.cpp ${IMGUI_FILES})
 
-target_include_directories(VulkanBasicDemo PUBLIC libs/glfw/include)
-target_include_directories(VulkanBasicDemo PUBLIC libs/imgui)
-target_include_directories(VulkanBasicDemo PUBLIC libs/imgui/backends)
-target_include_directories(VulkanBasicDemo PUBLIC $ENV{VULKAN_SDK}/Include)
+target_include_directories(VulkanXRay PUBLIC libs/glfw/include)
+target_include_directories(VulkanXRay PUBLIC libs/imgui)
+target_include_directories(VulkanXRay PUBLIC libs/imgui/backends)
+target_include_directories(VulkanXRay PUBLIC $ENV{VULKAN_SDK}/Include)
 
-target_link_directories(VulkanBasicDemo PUBLIC libs/glfw/lib)
-target_link_libraries(VulkanBasicDemo PUBLIC ${Vulkan_LIBRARIES} glfw)
+target_link_directories(VulkanXRay PUBLIC libs/glfw/lib)
+target_link_libraries(VulkanXRay PUBLIC ${Vulkan_LIBRARIES} glfw)
 
-add_custom_command(TARGET VulkanBasicDemo POST_BUILD
+add_custom_command(TARGET VulkanXRay POST_BUILD
         COMMENT "Compiling shaders into sprv"
         COMMAND glslc ${CMAKE_SOURCE_DIR}/shaders/vertex.vert -o vertex.sprv
         COMMAND glslc ${CMAKE_SOURCE_DIR}/shaders/fragment.frag -o fragment.sprv
